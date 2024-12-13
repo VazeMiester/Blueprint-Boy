@@ -2,6 +2,7 @@ using Cinemachine;
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Threading;
 using UnityEngine;
@@ -18,7 +19,7 @@ public class PlayerController : MonoBehaviour
     private Quaternion targetRotation;       // The target roation for the player
     private Quaternion rotationToAdd;        // The rotation that needs to be added to the target angle when the player rotates
     public string gravityDirection = "down"; // The current direction of gravity
-    public float speedLimit = 5f;            // The velocity of the player where force stops being added when the movement key is pressed
+    public float speedLimit { get; private set; }            // The velocity of the player where force stops being added when the movement key is pressed
     public float sprintingSpeedLimit;
     public float scaleValue = 1;             // A value representing the current scale of the game
     private float currentZoom;               // the current camera zoom
@@ -29,7 +30,32 @@ public class PlayerController : MonoBehaviour
     public bool stillScaling = false;        // a bool indicating if scaling is in progress or not
     public CinemachineVirtualCamera virtualCamera;
     private bool isSprinting = false;
+    public const int leftRotationIncrement = -90;
+    public const int rightRotationIncrement = 90;
+    public const float scaleUpIncrement = 2f;
+    public const float scaleDownIncrement = 0.5f;
 
+
+
+    public enum playerMoveState
+    {
+        limbo,
+        onGround,
+        onGroundSprinting,
+        inAir,
+        inAirSprinting,
+    }
+
+    private playerMoveState _currentMoveState;
+    public playerMoveState currentMoveState
+    {
+        get => _currentMoveState;
+        set
+        {
+            _currentMoveState = value;
+            setSpeedLimit(_currentMoveState);
+        }
+    }
 
     void Start()
     {
@@ -59,26 +85,40 @@ public class PlayerController : MonoBehaviour
         Vector2 localVelocity = transform.InverseTransformDirection(rb2D.velocity);
         float horizontalLocalVelocity = localVelocity.x;
 
-        sprintingSpeedLimit = speedLimit * 2;
+        if ((horizontalLocalVelocity <= speedLimit && moveHorizontal == 1) || (horizontalLocalVelocity >= -speedLimit && moveHorizontal == -1))
+        {
+            rb2D.AddForce(localRight);
+        }
 
-        if (isSprinting && (horizontalLocalVelocity <= sprintingSpeedLimit && moveHorizontal == 1) || isSprinting && (horizontalLocalVelocity >= -sprintingSpeedLimit && moveHorizontal == -1)) // if springting is true only add force if the player is going less than the sprintingSpeedlimit
+        currentMoveState = (isGrounded, isSprinting) switch
         {
-            rb2D.AddForce(localRight);
-        }
-        else if ((horizontalLocalVelocity <= speedLimit && moveHorizontal == 1) || (horizontalLocalVelocity >= -speedLimit && moveHorizontal == -1))  // if sprinting is not true only add force if the player is going less than the speedlimit
-        {
-            rb2D.AddForce(localRight);
-        }
+            (true, true) => playerMoveState.onGroundSprinting,
+            (true, false) => playerMoveState.onGround,
+            (false, true) => playerMoveState.inAirSprinting,
+            (false, false) => playerMoveState.inAir,
+            _ => playerMoveState.limbo
+        };
+
+        //sprintingSpeedLimit = speedLimit * 2;
+
+        //if (isSprinting && (horizontalLocalVelocity <= sprintingSpeedLimit && moveHorizontal == 1) || isSprinting && (horizontalLocalVelocity >= -sprintingSpeedLimit && moveHorizontal == -1)) // if springting is true only add force if the player is going less than the sprintingSpeedlimit
+        //{
+        //    rb2D.AddForce(localRight);
+        //}
+        //else if ((horizontalLocalVelocity <= speedLimit && moveHorizontal == 1) || (horizontalLocalVelocity >= -speedLimit && moveHorizontal == -1))  // if sprinting is not true only add force if the player is going less than the speedlimit
+        //{
+        //    rb2D.AddForce(localRight);
+        //}
 
         // when you press F sprinting is set to true
         if (Input.GetKey(KeyCode.F))
-        {
+       {
             isSprinting = true;
-        }
+       }
        else
-        {
+       {
             isSprinting = false;
-        }
+       }
 
         // control jumping
         Vector2 localUp = transform.up;
@@ -93,31 +133,29 @@ public class PlayerController : MonoBehaviour
         // control map rotation
         if (Input.GetKeyDown(KeyCode.Z)) // Check for Z key press
         {
-            RotateLeft();
+            Rotate(leftRotationIncrement);
         }
 
         if (Input.GetKeyDown(KeyCode.X)) // Check for X key press
         {
-            RotateRight();
+            Rotate(rightRotationIncrement);
         }
 
-        transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime); // always rotate towards the target rotation
-
-        UpdateGravityBasedOnRotation();
+        if (transform.rotation != targetRotation)
+        {
+            transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime); // always rotate towards the target rotation
+        }
 
         // control map scale
         if (Input.GetKeyDown (KeyCode.Q) && scaleValue != 1 && stillScaling == false)
         {
-            ScaleDown();
+            Scale(scaleDownIncrement);
         }
 
         if (Input.GetKeyDown(KeyCode.E) && scaleValue != 7 && stillScaling == false)
         {
-            ScaleUp();
+            Scale(scaleUpIncrement);
         }
-
-        // sprint
-
     }
 
     void UpdateGravityBasedOnRotation()
@@ -160,40 +198,37 @@ public class PlayerController : MonoBehaviour
         transform.position = spawnPoint.position; // teleport player to spawn
     }
 
-    public void RotateLeft() // Method to rotate 90 degrees left
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="angle"></param>
+    public void Rotate(float angle) // Method to rotate 90 degrees left
     {
-        rotationToAdd = Quaternion.Euler(0, 0, -90);
+        rotationToAdd = Quaternion.Euler(0, 0, angle);
         targetRotation = targetRotation * rotationToAdd;
+        UpdateGravityBasedOnRotation();
     }
 
-    public void RotateRight() // Method to rotate 90 degrees right
-    {
-        rotationToAdd = Quaternion.Euler(0, 0, 90);
-        targetRotation = targetRotation * rotationToAdd;
-    }
-
-    public void ScaleDown() // scales the player down
+    /// <summary>
+    /// scales the player down
+    /// </summary>
+    public void Scale(float scaleInteger)
     {
         currentScale = new Vector2(transform.localScale.x, transform.localScale.y); // set current scale
-        targetScale = currentScale / 2;                                             // set target scale
+        targetScale = currentScale * scaleInteger;                                  // set target scale
         currentZoom = virtualCamera.m_Lens.OrthographicSize;                        // set current zoom
-        targetZoom = virtualCamera.m_Lens.OrthographicSize / 2;                     // set target zoom
-        scaleValue = scaleValue - 1;                                                // reduce scale value by 1
+        targetZoom = virtualCamera.m_Lens.OrthographicSize * scaleInteger;          // set target zoom
         StartCoroutine(ScaleAndZoomOverTime());
-        rb2D.velocity = rb2D.velocity / 2;
-        speedLimit = speedLimit / 2;
-    }
-
-    public void ScaleUp() // scales the player up
-    {
-        currentScale = new Vector2(transform.localScale.x, transform.localScale.y); // set current scale
-        targetScale = currentScale * 2;                                             // set target scale
-        currentZoom = virtualCamera.m_Lens.OrthographicSize;                        // set current zoom
-        targetZoom = virtualCamera.m_Lens.OrthographicSize * 2;                     // set target zoom
-        scaleValue = scaleValue + 1;                                                // increase scale value by 1
-        StartCoroutine(ScaleAndZoomOverTime());
-        rb2D.velocity = rb2D.velocity * 2;
-        speedLimit = speedLimit * 2;
+        rb2D.velocity = rb2D.velocity * scaleInteger;
+        speedLimit = speedLimit * scaleInteger;
+        if (scaleInteger == 2) //change scale value based on scale up or down
+        {
+            scaleValue++; 
+        }
+        else
+        {
+            scaleValue--;
+        }
     }
 
     private IEnumerator ScaleAndZoomOverTime()  // use coroutine so you can use a while loop to scale over time
@@ -214,5 +249,28 @@ public class PlayerController : MonoBehaviour
         transform.localScale = targetScale;
         virtualCamera.m_Lens.OrthographicSize = targetZoom;
         stillScaling = false; // set still scaling to false so that the player can scale again
+    }
+
+    private void setSpeedLimit(playerMoveState state)
+    {
+        switch (state)
+        {
+            case playerMoveState.onGround:
+                speedLimit = 5;
+                UnityEngine.Debug.Log("Speed limit is " + speedLimit);
+                break;
+            case playerMoveState.onGroundSprinting:
+                speedLimit = 10;
+                UnityEngine.Debug.Log("Speed limit is " + speedLimit);
+                break;
+            case playerMoveState.inAir:
+                speedLimit = 2;
+                UnityEngine.Debug.Log("Speed limit is " + speedLimit);
+                break;
+            case playerMoveState.inAirSprinting:
+                speedLimit = 4;
+                UnityEngine.Debug.Log("Speed limit is " + speedLimit);
+                break;
+        }
     }
 }
