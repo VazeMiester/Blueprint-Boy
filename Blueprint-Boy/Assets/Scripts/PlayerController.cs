@@ -34,8 +34,9 @@ public class PlayerController : MonoBehaviour
     public const int rightRotationIncrement = 90;
     public const float scaleUpIncrement = 2f;
     public const float scaleDownIncrement = 0.5f;
-
-
+    public float launchForce = 5f;
+    Vector2[] scaleLaunchVectors;
+    Collider2D[] scaleLaunchColliders;
 
     public enum playerMoveState
     {
@@ -62,6 +63,14 @@ public class PlayerController : MonoBehaviour
         rb2D = GetComponent<Rigidbody2D>();
 
         targetRotation = transform.rotation; // set intial target rotation to the current rotation
+
+        scaleLaunchColliders = GetComponentsInChildren<Collider2D>();
+        scaleLaunchVectors = new Vector2[scaleLaunchColliders.Length];
+
+        for (int i = 0; i < scaleLaunchColliders.Length; i++)
+        {
+            scaleLaunchVectors[i] = scaleLaunchColliders[i].transform.position - rb2D.transform.position;
+        }
     }
 
     void Update()
@@ -95,20 +104,8 @@ public class PlayerController : MonoBehaviour
             (true, true) => playerMoveState.onGroundSprinting,
             (true, false) => playerMoveState.onGround,
             (false, true) => playerMoveState.inAirSprinting,
-            (false, false) => playerMoveState.inAir,
-            _ => playerMoveState.limbo
+            (false, false) => playerMoveState.inAir
         };
-
-        //sprintingSpeedLimit = speedLimit * 2;
-
-        //if (isSprinting && (horizontalLocalVelocity <= sprintingSpeedLimit && moveHorizontal == 1) || isSprinting && (horizontalLocalVelocity >= -sprintingSpeedLimit && moveHorizontal == -1)) // if springting is true only add force if the player is going less than the sprintingSpeedlimit
-        //{
-        //    rb2D.AddForce(localRight);
-        //}
-        //else if ((horizontalLocalVelocity <= speedLimit && moveHorizontal == 1) || (horizontalLocalVelocity >= -speedLimit && moveHorizontal == -1))  // if sprinting is not true only add force if the player is going less than the speedlimit
-        //{
-        //    rb2D.AddForce(localRight);
-        //}
 
         // when you press F sprinting is set to true
         if (Input.GetKey(KeyCode.F))
@@ -199,10 +196,10 @@ public class PlayerController : MonoBehaviour
     }
 
     /// <summary>
-    /// 
+    /// Rotates the player
     /// </summary>
     /// <param name="angle"></param>
-    public void Rotate(float angle) // Method to rotate 90 degrees left
+    public void Rotate(float angle) // Method to rotate 90 degrees
     {
         rotationToAdd = Quaternion.Euler(0, 0, angle);
         targetRotation = targetRotation * rotationToAdd;
@@ -210,8 +207,9 @@ public class PlayerController : MonoBehaviour
     }
 
     /// <summary>
-    /// scales the player down
+    /// scales the player
     /// </summary>
+    /// <param name="scaleInteger"></param>
     public void Scale(float scaleInteger)
     {
         currentScale = new Vector2(transform.localScale.x, transform.localScale.y); // set current scale
@@ -221,6 +219,10 @@ public class PlayerController : MonoBehaviour
         StartCoroutine(ScaleAndZoomOverTime());
         rb2D.velocity = rb2D.velocity * scaleInteger;
         speedLimit = speedLimit * scaleInteger;
+        if (targetZoom > currentZoom)
+        {
+            addScaleLaunchForce();
+        }
         if (scaleInteger == 2) //change scale value based on scale up or down
         {
             scaleValue++; 
@@ -230,7 +232,7 @@ public class PlayerController : MonoBehaviour
             scaleValue--;
         }
     }
-
+    
     private IEnumerator ScaleAndZoomOverTime()  // use coroutine so you can use a while loop to scale over time
     {
         float elapsedTime = 0f; // set up for the while loop duration
@@ -251,25 +253,35 @@ public class PlayerController : MonoBehaviour
         stillScaling = false; // set still scaling to false so that the player can scale again
     }
 
+    private void addScaleLaunchForce()
+    {
+        for (int i = 0; i < scaleLaunchColliders.Length; i++)
+        {
+            Collider2D sLCol = scaleLaunchColliders[i];
+            scaleLaunchVectors[i] = scaleLaunchColliders[i].transform.position - rb2D.transform.position;
+
+            if (sLCol.IsTouchingLayers(LayerMask.GetMask("Ground")))
+            {
+                rb2D.AddForce(scaleLaunchVectors[i] * launchForce, ForceMode2D.Impulse);
+            }
+        }
+    }
+
     private void setSpeedLimit(playerMoveState state)
     {
         switch (state)
         {
             case playerMoveState.onGround:
                 speedLimit = 5;
-                UnityEngine.Debug.Log("Speed limit is " + speedLimit);
                 break;
             case playerMoveState.onGroundSprinting:
                 speedLimit = 10;
-                UnityEngine.Debug.Log("Speed limit is " + speedLimit);
                 break;
             case playerMoveState.inAir:
                 speedLimit = 2;
-                UnityEngine.Debug.Log("Speed limit is " + speedLimit);
                 break;
             case playerMoveState.inAirSprinting:
                 speedLimit = 4;
-                UnityEngine.Debug.Log("Speed limit is " + speedLimit);
                 break;
         }
     }
