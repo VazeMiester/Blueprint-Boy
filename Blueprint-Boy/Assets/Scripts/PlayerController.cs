@@ -2,7 +2,7 @@ using Cinemachine;
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Specialized;
-using System.Diagnostics;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Threading;
 using UnityEngine;
@@ -10,9 +10,9 @@ using UnityEngine;
 
 public class PlayerController : MonoBehaviour
 {
-    public float speed = 5.0f;               // Horizontal movement speed
-    public float jumpForce = 20.0f;          // Jump force
-    public float rotationSpeed = 1000f;      // Rotation speed
+    public float speed;               // Horizontal movement speed
+    public float jumpForce;          // Jump force
+    public float rotationSpeed;      // Rotation speed
     private Rigidbody2D rb2D;                // Reference to the Rigidbody2D component
     private bool isGrounded = true;          // Check if the player is grounded
     public Transform spawnPoint;             // Reference spawn location
@@ -26,7 +26,7 @@ public class PlayerController : MonoBehaviour
     private float targetZoom;                // the new zoom after scaling
     private Vector2 currentScale;            // the current scale of the player
     private Vector2 targetScale;             // the new scale of the player after scaling
-    public float scaleSpeed = 0.1f;          // the amount of time it takes for the player to scale in seconds
+    public float scaleSpeed;          // the amount of time it takes for the player to scale in seconds
     public bool stillScaling = false;        // a bool indicating if scaling is in progress or not
     public CinemachineVirtualCamera virtualCamera;
     private bool isSprinting = false;
@@ -34,9 +34,11 @@ public class PlayerController : MonoBehaviour
     public const int rightRotationIncrement = 90;
     public const float scaleUpIncrement = 2f;
     public const float scaleDownIncrement = 0.5f;
-    public float launchForce = 5f;
+    public float launchForce;
     Vector2[] scaleLaunchVectors;
     Collider2D[] scaleLaunchColliders;
+    bool[] isScaleLaunchVectorActive;
+    private float numberOfActiveScaleLaunchVectors;
 
     public enum playerMoveState
     {
@@ -58,6 +60,25 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    private void setSpeedLimit(playerMoveState state)
+    {
+        switch (state)
+        {
+            case playerMoveState.onGround:
+                speedLimit = 5;
+                break;
+            case playerMoveState.onGroundSprinting:
+                speedLimit = 10;
+                break;
+            case playerMoveState.inAir:
+                speedLimit = 2;
+                break;
+            case playerMoveState.inAirSprinting:
+                speedLimit = 4;
+                break;
+        }
+    }
+
     void Start()
     {
         rb2D = GetComponent<Rigidbody2D>();
@@ -66,11 +87,7 @@ public class PlayerController : MonoBehaviour
 
         scaleLaunchColliders = GetComponentsInChildren<Collider2D>();
         scaleLaunchVectors = new Vector2[scaleLaunchColliders.Length];
-
-        for (int i = 0; i < scaleLaunchColliders.Length; i++)
-        {
-            scaleLaunchVectors[i] = scaleLaunchColliders[i].transform.position - rb2D.transform.position;
-        }
+        isScaleLaunchVectorActive = new bool[scaleLaunchColliders.Length];
     }
 
     void Update()
@@ -219,10 +236,6 @@ public class PlayerController : MonoBehaviour
         StartCoroutine(ScaleAndZoomOverTime());
         rb2D.velocity = rb2D.velocity * scaleInteger;
         speedLimit = speedLimit * scaleInteger;
-        if (targetZoom > currentZoom)
-        {
-            addScaleLaunchForce();
-        }
         if (scaleInteger == 2) //change scale value based on scale up or down
         {
             scaleValue++; 
@@ -251,38 +264,43 @@ public class PlayerController : MonoBehaviour
         transform.localScale = targetScale;
         virtualCamera.m_Lens.OrthographicSize = targetZoom;
         stillScaling = false; // set still scaling to false so that the player can scale again
+        if (targetZoom > currentZoom)
+        {
+            addScaleLaunchForce();
+        }
     }
 
     private void addScaleLaunchForce()
     {
+        Debug.Log("Entered the addScaleLaunchForce");
         for (int i = 0; i < scaleLaunchColliders.Length; i++)
         {
+            Debug.Log("loop");
             Collider2D sLCol = scaleLaunchColliders[i];
-            scaleLaunchVectors[i] = scaleLaunchColliders[i].transform.position - rb2D.transform.position;
+            scaleLaunchVectors[i] = (rb2D.transform.position - scaleLaunchColliders[i].transform.position).normalized;
 
             if (sLCol.IsTouchingLayers(LayerMask.GetMask("Ground")))
             {
-                rb2D.AddForce(scaleLaunchVectors[i] * launchForce, ForceMode2D.Impulse);
+                isScaleLaunchVectorActive[i] = true;
+                Debug.Log("If was true for" + sLCol.name);
+            }
+            else
+            {
+                isScaleLaunchVectorActive[i] = false;
+                Debug.Log("If was false for" + sLCol.name);
             }
         }
-    }
-
-    private void setSpeedLimit(playerMoveState state)
-    {
-        switch (state)
+        numberOfActiveScaleLaunchVectors = isScaleLaunchVectorActive.Count(b => b);
+        if (numberOfActiveScaleLaunchVectors > 2)
         {
-            case playerMoveState.onGround:
-                speedLimit = 5;
-                break;
-            case playerMoveState.onGroundSprinting:
-                speedLimit = 10;
-                break;
-            case playerMoveState.inAir:
-                speedLimit = 2;
-                break;
-            case playerMoveState.inAirSprinting:
-                speedLimit = 4;
-                break;
+            for (int i = 0; i < isScaleLaunchVectorActive.Length; i++)
+            {
+                if (isScaleLaunchVectorActive[i])
+                {
+                    rb2D.AddForce(scaleLaunchVectors[i] * launchForce, ForceMode2D.Impulse);
+                    Debug.Log("Force is" + scaleLaunchVectors[i] * launchForce);
+                }
+            }
         }
     }
 }
